@@ -49,6 +49,14 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def cargo_metadata(root):
+    raw = subprocess.check_output(
+        ["cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", str(root / "src-tauri/Cargo.toml")],
+        cwd=root)
+    # Cargo JSON is UTF-8, not the Windows console's legacy code page.
+    return json.loads(raw.decode("utf-8"))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
@@ -85,9 +93,7 @@ def main():
             archive.write(HERE / relative, "diagnostic-recipe/" + relative)
 
     # Dependency manifests and public license notices, without machine paths.
-    metadata = json.loads(subprocess.check_output(
-        ["cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", str(root / "src-tauri/Cargo.toml")],
-        cwd=root, text=True))
+    metadata = cargo_metadata(root)
     with zipfile.ZipFile(output / "Dependency-Notices.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         notices = []
         for package in metadata["packages"]:

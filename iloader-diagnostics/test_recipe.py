@@ -4,6 +4,7 @@ import json
 import re
 import struct
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -138,6 +139,16 @@ class RecipeTests(unittest.TestCase):
             damaged[offset:offset + len(replacement)] = replacement
             with self.assertRaises(ValueError):
                 package.verify_pe(damaged)
+
+    def test_cargo_metadata_uses_strict_utf8_not_windows_codepage(self):
+        expected = {"packages": [{"name": "synthetic", "description": "Łódź 漢字 🏋"}]}
+        raw = json.dumps(expected, ensure_ascii=False).encode("utf-8")
+        with mock.patch.object(package.subprocess, "check_output", return_value=raw) as command:
+            self.assertEqual(package.cargo_metadata(HERE), expected)
+            self.assertNotIn("text", command.call_args.kwargs)
+        with mock.patch.object(package.subprocess, "check_output", return_value=b"\xff"):
+            with self.assertRaises(UnicodeDecodeError):
+                package.cargo_metadata(HERE)
 
     def test_workflow_is_public_only_and_never_launches_or_uploads_raw_logs(self):
         source = (HERE.parent / ".github/workflows/iloader-diagnostics.yml").read_text(encoding="utf-8")
