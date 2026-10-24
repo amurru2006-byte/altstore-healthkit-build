@@ -50,7 +50,7 @@ jobs:
       - name: Native synthetic tests in actual app crate
         working-directory: build/iloader-upstream/src-tauri
         run: |
-          cargo test --release --locked --lib network_diagnostics::tests:: -- --nocapture 2>&1 | Tee-Object -FilePath ../../native-tests.log
+          cargo test --release --locked --lib network_diagnostics::tests:: --color never -- --nocapture --color never 2>&1 | Tee-Object -FilePath ../../native-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build unsigned portable executable without running it
         working-directory: build/iloader-upstream

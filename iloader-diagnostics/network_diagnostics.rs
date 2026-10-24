@@ -105,7 +105,6 @@ pub fn summarize_report(report: &rootcause::Report) -> Option<String> {
 mod tests {
     use super::*;
     use std::fmt;
-    use rootcause::prelude::*;
 
     #[derive(Debug)]
     struct Fixture { text: &'static str, child: Option<Box<dyn Error + Send + Sync>> }
@@ -162,19 +161,19 @@ mod tests {
         assert!(summarize_error(&builder_error()).contains("builder"));
     }
     #[test] fn report_context_preserves_typed_reqwest() {
-        let report = rootcause::Report::new(builder_error()).context("FIXTURE_SECRET_CONTEXT");
+        let report: rootcause::Report = rootcause::Report::new_sendsync(builder_error()).context("FIXTURE_SECRET_CONTEXT").into_dynamic();
         let result = summarize_report(&report).unwrap();
         assert!(result.contains("reqwest")); assert!(!result.contains("FIXTURE_SECRET"));
     }
     #[test] fn middleware_report_is_detected() {
         let error = reqwest_middleware::Error::Reqwest(builder_error());
-        let report = rootcause::Report::new(error).context("FIXTURE_SECRET_CONTEXT");
+        let report: rootcause::Report = rootcause::Report::new_sendsync(error).context("FIXTURE_SECRET_CONTEXT").into_dynamic();
         let result = summarize_report(&report).unwrap();
         assert!(result.contains("causes=middleware>reqwest"));
         assert!(result.contains("builder"));
     }
     #[test] fn non_network_report_is_unchanged() {
-        let report = rootcause::Report::new(fixture("ordinary non-network error"));
+        let report: rootcause::Report = rootcause::Report::new_sendsync(fixture("ordinary non-network error")).into_dynamic();
         assert!(summarize_report(&report).is_none());
     }
     #[test] fn mixed_case_tls_marker_is_seen() {

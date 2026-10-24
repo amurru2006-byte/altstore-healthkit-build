@@ -91,6 +91,13 @@ class RecipeTests(unittest.TestCase):
         self.assertNotIn(".await", source)
         self.assertNotIn("developerservices2.apple.com", source)
 
+    def test_native_reports_match_production_dynamic_sendsync_type(self):
+        source = (HERE / "network_diagnostics.rs").read_text(encoding="utf-8")
+        fixtures = source.split("#[cfg(test)]", 1)[1]
+        self.assertEqual(fixtures.count("let report: rootcause::Report = rootcause::Report::new_sendsync("), 3)
+        self.assertEqual(fixtures.count(".into_dynamic();"), 3)
+        self.assertNotIn("use rootcause::prelude", fixtures)
+
     def test_module_never_formats_raw_error_or_url_into_output(self):
         source = (HERE / "network_diagnostics.rs").read_text(encoding="utf-8")
         render = source.split("    fn render(&self)", 1)[1].split("fn summarize_error", 1)[0]
