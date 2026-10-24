@@ -73,6 +73,20 @@ def zip_entry(archive, name, data):
     archive.writestr(entry, data)
 
 
+def frontend_notices(archive, node_modules):
+    # Nested package.json files can be module markers with no name/version.
+    # Their public installation-relative paths are unique; display labels are not.
+    for manifest in sorted(node_modules.glob("**/package.json")):
+        if manifest.is_symlink():
+            continue
+        json.loads(manifest.read_text(encoding="utf-8-sig"))
+        base = PurePosixPath("frontend") / manifest.parent.relative_to(node_modules).as_posix()
+        zip_entry(archive, (base / "package.json").as_posix(), manifest.read_bytes())
+        for path in manifest.parent.iterdir():
+            if path.is_file() and path.name.lower().startswith(("license", "licence", "copying", "notice")):
+                zip_entry(archive, (base / path.name).as_posix(), path.read_bytes())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
@@ -123,15 +137,7 @@ def main():
                     zip_entry(archive, label + "/" + path.name, path.read_bytes())
         zip_entry(archive, "rust-dependencies.json", json.dumps(notices, indent=2) + "\n")
         # The frozen Bun lock is also preserved in Corresponding-Source.zip.
-        for manifest in sorted((root / "node_modules").glob("**/package.json")):
-            if manifest.is_symlink():
-                continue
-            package = json.loads(manifest.read_text(encoding="utf-8"))
-            label = str(package.get("name", "unknown")).replace("/", "_") + "-" + str(package.get("version", "unknown"))
-            zip_entry(archive, "frontend/" + label + "/package.json", manifest.read_bytes())
-            for path in manifest.parent.iterdir():
-                if path.is_file() and path.name.lower().startswith(("license", "licence", "copying", "notice")):
-                    zip_entry(archive, "frontend/" + label + "/" + path.name, path.read_bytes())
+        frontend_notices(archive, root / "node_modules")
 
     manifest = {"upstream_commit": recipe.CONFIG["commit"], "version": recipe.CONFIG["version"],
                 "diagnostic_revision": "D1", "unofficial": True, "authenticode_signed": False,

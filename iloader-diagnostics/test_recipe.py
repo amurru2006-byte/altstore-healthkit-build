@@ -180,6 +180,30 @@ class RecipeTests(unittest.TestCase):
                 self.assertEqual(archive.getinfo("fixture/LICENSE").date_time, (1980, 1, 1, 0, 0, 0))
                 self.assertIsNone(archive.testzip())
 
+    def test_frontend_notices_preserve_distinct_nested_module_manifests(self):
+        scratch = HERE.parent / "build"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="synthetic-frontend-", dir=scratch) as temporary:
+            root = Path(temporary)
+            expected = {}
+            for folder, marker in (("package-a/cjs", "commonjs"), ("package-b/esm", "module")):
+                directory = root / folder
+                directory.mkdir(parents=True)
+                data = json.dumps({"type": marker}).encode("utf-8")
+                (directory / "package.json").write_bytes(data)
+                license_bytes = ("Synthetic public notice for " + folder).encode("utf-8")
+                (directory / "LICENSE").write_bytes(license_bytes)
+                expected["frontend/" + folder + "/package.json"] = data
+                expected["frontend/" + folder + "/LICENSE"] = license_bytes
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as archive:
+                package.frontend_notices(archive, root)
+            with zipfile.ZipFile(io.BytesIO(data.getvalue())) as archive:
+                self.assertEqual(set(archive.namelist()), set(expected))
+                for name, value in expected.items():
+                    self.assertEqual(archive.read(name), value)
+                self.assertIsNone(archive.testzip())
+
     def test_workflow_is_public_only_and_never_launches_or_uploads_raw_logs(self):
         source = (HERE.parent / ".github/workflows/iloader-diagnostics.yml").read_text(encoding="utf-8")
         self.assertIn("github.event.repository.private == false", source)
