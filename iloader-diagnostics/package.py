@@ -9,7 +9,7 @@ import shutil
 import struct
 import subprocess
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("diagnostic_recipe", HERE / "apply.py")
@@ -57,6 +57,22 @@ def cargo_metadata(root):
     return json.loads(raw.decode("utf-8"))
 
 
+def zip_entry(archive, name, data):
+    if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts or "\\" in name or ":" in name:
+        raise ValueError("Unsafe archive entry")
+    data = data.encode("utf-8") if isinstance(data, str) else data
+    if name in archive.namelist():
+        if archive.read(name) != data:
+            raise ValueError("Conflicting duplicate archive entry")
+        return
+    # Registry license files may carry epoch timestamps, outside ZIP's range.
+    # Normalize archive metadata only; preserve the exact public file bytes.
+    entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    entry.compress_type = zipfile.ZIP_DEFLATED
+    entry.external_attr = 0o100644 << 16
+    archive.writestr(entry, data)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
@@ -87,10 +103,10 @@ def main():
             path = root / relative
             if path.is_symlink() or not path.is_file():
                 raise ValueError("Unsupported public source entry")
-            archive.write(path, "upstream/" + relative)
-        archive.write(root / recipe.MODULE_PATH, "upstream/" + recipe.MODULE_PATH)
+            zip_entry(archive, "upstream/" + relative, path.read_bytes())
+        zip_entry(archive, "upstream/" + recipe.MODULE_PATH, (root / recipe.MODULE_PATH).read_bytes())
         for relative in ("README.md", "apply.py", "package.py", "upstream.json", "network_diagnostics.rs", "test_recipe.py"):
-            archive.write(HERE / relative, "diagnostic-recipe/" + relative)
+            zip_entry(archive, "diagnostic-recipe/" + relative, (HERE / relative).read_bytes())
 
     # Dependency manifests and public license notices, without machine paths.
     metadata = cargo_metadata(root)
@@ -104,18 +120,18 @@ def main():
             directory = Path(package["manifest_path"]).parent
             for path in sorted(directory.iterdir()):
                 if path.is_file() and path.name.lower().startswith(("license", "licence", "copying", "notice")):
-                    archive.write(path, label + "/" + path.name)
-        archive.writestr("rust-dependencies.json", json.dumps(notices, indent=2) + "\n")
+                    zip_entry(archive, label + "/" + path.name, path.read_bytes())
+        zip_entry(archive, "rust-dependencies.json", json.dumps(notices, indent=2) + "\n")
         # The frozen Bun lock is also preserved in Corresponding-Source.zip.
         for manifest in sorted((root / "node_modules").glob("**/package.json")):
             if manifest.is_symlink():
                 continue
             package = json.loads(manifest.read_text(encoding="utf-8"))
             label = str(package.get("name", "unknown")).replace("/", "_") + "-" + str(package.get("version", "unknown"))
-            archive.writestr("frontend/" + label + "/package.json", manifest.read_bytes())
+            zip_entry(archive, "frontend/" + label + "/package.json", manifest.read_bytes())
             for path in manifest.parent.iterdir():
                 if path.is_file() and path.name.lower().startswith(("license", "licence", "copying", "notice")):
-                    archive.write(path, "frontend/" + label + "/" + path.name)
+                    zip_entry(archive, "frontend/" + label + "/" + path.name, path.read_bytes())
 
     manifest = {"upstream_commit": recipe.CONFIG["commit"], "version": recipe.CONFIG["version"],
                 "diagnostic_revision": "D1", "unofficial": True, "authenticode_signed": False,

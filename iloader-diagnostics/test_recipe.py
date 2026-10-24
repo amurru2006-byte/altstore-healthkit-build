@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: MIT
 import importlib.util
+import io
 import json
+import os
 import re
 import struct
+import tempfile
 import unittest
+import zipfile
 from unittest import mock
 from pathlib import Path
 
@@ -149,6 +153,32 @@ class RecipeTests(unittest.TestCase):
         with mock.patch.object(package.subprocess, "check_output", return_value=b"\xff"):
             with self.assertRaises(UnicodeDecodeError):
                 package.cargo_metadata(HERE)
+
+    def test_zip_normalizes_epoch_license_timestamps_without_changing_bytes(self):
+        scratch = HERE.parent / "build"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="synthetic-license-", dir=scratch) as temporary:
+            path = Path(temporary) / "LICENSE"
+            expected = b"Synthetic public license fixture\n"
+            path.write_bytes(expected)
+            os.utime(path, (0, 0))
+            with zipfile.ZipFile(io.BytesIO(), "w") as baseline:
+                with self.assertRaises(ValueError):
+                    baseline.write(path, "fixture/LICENSE")
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as archive:
+                package.zip_entry(archive, "fixture/LICENSE", path.read_bytes())
+                package.zip_entry(archive, "fixture/LICENSE", expected)
+                with self.assertRaises(ValueError):
+                    package.zip_entry(archive, "fixture/LICENSE", b"conflicting fixture")
+                for unsafe in ("../escape", "/absolute", "C:/absolute", "fixture\\escape"):
+                    with self.assertRaises(ValueError):
+                        package.zip_entry(archive, unsafe, b"fixture")
+            with zipfile.ZipFile(io.BytesIO(data.getvalue())) as archive:
+                self.assertEqual(archive.namelist(), ["fixture/LICENSE"])
+                self.assertEqual(archive.read("fixture/LICENSE"), expected)
+                self.assertEqual(archive.getinfo("fixture/LICENSE").date_time, (1980, 1, 1, 0, 0, 0))
+                self.assertIsNone(archive.testzip())
 
     def test_workflow_is_public_only_and_never_launches_or_uploads_raw_logs(self):
         source = (HERE.parent / ".github/workflows/iloader-diagnostics.yml").read_text(encoding="utf-8")
