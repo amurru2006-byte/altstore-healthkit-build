@@ -3,6 +3,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("adaptation", ROOT / "scripts/apply_healthkit.py")
@@ -11,6 +12,9 @@ SPEC.loader.exec_module(adaptation)
 PRIVACY_SPEC = importlib.util.spec_from_file_location("privacy", ROOT / "scripts/privacy_gate.py")
 privacy = importlib.util.module_from_spec(PRIVACY_SPEC)
 PRIVACY_SPEC.loader.exec_module(privacy)
+PACKAGE_SPEC = importlib.util.spec_from_file_location("package", ROOT / "scripts/package.py")
+package = importlib.util.module_from_spec(PACKAGE_SPEC)
+PACKAGE_SPEC.loader.exec_module(package)
 
 
 class PatchTests(unittest.TestCase):
@@ -76,6 +80,14 @@ class PatchTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
         self.assertEqual(workflow.count("if: ${{ github.event.repository.private == false }}"), 2)
         self.assertEqual(workflow.count("fetch-depth: 0"), 2)
+
+    def test_arm64_verification_places_input_before_architecture_list(self):
+        executable = Path("synthetic/AltStore.app/AltStore")
+        with mock.patch.object(package.subprocess, "run") as run:
+            package.verify_arm64(executable)
+        run.assert_called_once_with(
+            ["xcrun", "lipo", str(executable), "-verify_arch", "arm64"], check=True
+        )
 
 
 if __name__ == "__main__":

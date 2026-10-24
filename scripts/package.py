@@ -11,6 +11,11 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
+def verify_arm64(executable):
+    # lipo consumes all arguments after -verify_arch as architecture names.
+    subprocess.run(["xcrun", "lipo", str(executable), "-verify_arch", "arm64"], check=True)
+
+
 def main():
     config = json.loads((ROOT / "upstream.json").read_text())
     app = ROOT / "build/DerivedData/Build/Products/Release-iphoneos/AltStore.app"
@@ -33,7 +38,7 @@ def main():
     for bundle in [app, *widgets, *app.rglob("*.framework")]:
         bundle_info = plistlib.loads((bundle / "Info.plist").read_bytes())
         executable = bundle / bundle_info["CFBundleExecutable"]
-        subprocess.run(["xcrun", "lipo", "-verify_arch", "arm64", str(executable)], check=True)
+        verify_arm64(executable)
         executables.append(executable)
     if not any(b"HK421J6T7P" in path.read_bytes() for path in executables):
         raise SystemExit("Compiled application does not contain the HealthKit feature mapping")
