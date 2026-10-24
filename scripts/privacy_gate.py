@@ -12,6 +12,10 @@ ALLOWED = {
     "scripts/package.py", "tests/test_patch.py", "tests/HealthKitCapabilityTests.m",
     "tests/fixtures/ALTCapabilities.h", "tests/fixtures/ALTCapabilities.m",
     "scripts/test_auth_refresh.py", "tests/RefreshHandlerHarness.swift",
+    "iloader-diagnostics/upstream.json",
+    "iloader-diagnostics/README.md", "iloader-diagnostics/apply.py",
+    "iloader-diagnostics/network_diagnostics.rs", "iloader-diagnostics/test_recipe.py",
+    "iloader-diagnostics/package.py", ".github/workflows/iloader-diagnostics.yml",
 }
 PATTERNS = (
     re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{16}\b"),
@@ -27,10 +31,19 @@ def validate_author_addresses(addresses):
             raise ValueError("Commit metadata must use a GitHub no-reply identity")
 
 
+def validate_revision_paths(paths):
+    if set(paths) != ALLOWED:
+        raise ValueError("Revision tree must match the exact public-source allowlist")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--revision", default="HEAD")
     args = parser.parse_args()
+    tree = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", args.revision], cwd=ROOT, text=True
+    ).splitlines()
+    validate_revision_paths(tree)
     for relative in sorted(ALLOWED):
         path = ROOT / relative
         if not path.is_file():
@@ -38,6 +51,13 @@ def main():
         text = path.read_text(encoding="utf-8")
         if any(pattern.search(text) for pattern in PATTERNS):
             raise SystemExit(f"Sensitive-looking data in {relative}; do not publish")
+        committed = subprocess.check_output(
+            ["git", "show", args.revision + ":" + relative], cwd=ROOT
+        ).decode("utf-8")
+        if any(pattern.search(committed) for pattern in PATTERNS):
+            raise SystemExit(f"Sensitive-looking committed data in {relative}; do not publish")
+        if committed != text:
+            raise SystemExit(f"Local and reviewed revision differ: {relative}; do not publish")
     metadata = subprocess.check_output(
         ["git", "log", "--format=%ae%x00%ce", args.revision, "--"], cwd=ROOT, text=True
     )

@@ -1,0 +1,70 @@
+name: Build unofficial iloader network diagnostics
+on:
+  push:
+    branches: [iloader-diagnostics-d1]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iloader-diagnostics-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    if: ${{ github.event.repository.private == false }}
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Source privacy and synthetic recipe checks
+        run: |
+          python scripts/privacy_gate.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s iloader-diagnostics -p test_recipe.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python iloader-diagnostics/apply.py fetch build/iloader-upstream
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python iloader-diagnostics/apply.py patch build/iloader-upstream
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install native build prerequisites on disposable public runner
+        run: choco install strawberryperl make --no-progress --yes
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Frozen frontend build
+        working-directory: build/iloader-upstream
+        run: |
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native synthetic tests in actual app crate
+        working-directory: build/iloader-upstream/src-tauri
+        run: |
+          cargo test --release --locked --lib network_diagnostics::tests:: -- --nocapture 2>&1 | Tee-Object -FilePath ../../native-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build unsigned portable executable without running it
+        working-directory: build/iloader-upstream
+        run: |
+          bun run tauri build --no-bundle --config src-tauri/ci.conf.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify unchanged protected source and package candidate
+        run: |
+          python iloader-diagnostics/package.py build/iloader-upstream build/native-tests.log build/diagnostic-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish candidate only after every gate passes
+        uses: actions/upload-artifact@v7
+        with:
+          name: iloader-2.4.0-UNOFFICIAL-diagnostic-D1-candidate
+          path: build/diagnostic-candidate/
+          if-no-files-found: error
+          retention-days: 1
