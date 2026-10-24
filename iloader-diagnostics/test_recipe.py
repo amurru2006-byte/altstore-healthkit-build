@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 import importlib.util
 import json
+import re
 import struct
 import unittest
 from pathlib import Path
@@ -105,11 +106,13 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(config["repository"], "https://github.com/nab138/iloader.git")
 
     def test_native_result_gate_accepts_only_exact_success(self):
-        names = "\n".join("test network_diagnostics::tests::fixture_" + chr(97 + i) + " ... ok" for i in range(18))
+        expected = re.findall(r"#\[test\]\s+fn ([a-z0-9_]+)", (HERE / "network_diagnostics.rs").read_text(encoding="utf-8"))
+        names = "\n".join("test network_diagnostics::tests::" + name + " ... ok" for name in expected)
         text = names + "\ntest result: ok. 18 passed; 0 failed; 0 ignored;"
         self.assertEqual(package.native_result(text)["passed"], 18)
         for invalid in (text.replace("0 ignored", "1 ignored"), text.replace("18 passed", "17 passed"),
-                        text.replace("fixture_b", "fixture_a"), text.replace("fixture_a ... ok", "fixture_a ... FAILED")):
+                        text.replace(expected[1], expected[0]), text.replace(expected[0] + " ... ok", expected[0] + " ... FAILED"),
+                        text.replace(expected[0], "unknown_fixture")):
             with self.assertRaises(ValueError):
                 package.native_result(invalid)
 

@@ -19,9 +19,11 @@ spec.loader.exec_module(recipe)
 
 def native_result(text):
     expected = recipe.CONFIG["native_test_count"]
-    names = re.findall(r"^test network_diagnostics::tests::([a-z_]+) \.\.\. ok$", text, re.M)
+    names = re.findall(r"^test network_diagnostics::tests::([a-z0-9_]+) \.\.\. ok$", text, re.M)
+    expected_names = re.findall(r"#\[test\]\s+fn ([a-z0-9_]+)", (HERE / "network_diagnostics.rs").read_text(encoding="utf-8"))
     results = re.findall(r"test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored;", text)
-    if len(names) != expected or len(set(names)) != expected or results != [(str(expected), "0", "0")]:
+    if (len(names) != expected or len(set(names)) != expected or set(names) != set(expected_names)
+            or len(expected_names) != expected or results != [(str(expected), "0", "0")]):
         raise ValueError("Native tests must pass exactly, without skips")
     return {"suite": "network_diagnostics", "passed": expected, "failed": 0, "ignored": 0,
             "scope": "synthetic only; no Apple login or device", "tests": sorted(names)}
