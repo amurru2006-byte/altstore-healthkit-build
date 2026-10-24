@@ -55,11 +55,14 @@ jobs:
           cat build/baseline.log
           test "$HK_BASELINE_STATUS" -eq 1
           grep -Fx 'Checks: 14; failures: 2' build/baseline.log
+          python3 scripts/test_auth_refresh.py upstream --expect-missing
           python3 scripts/apply_healthkit.py upstream
           xcrun clang -fobjc-arc -framework Foundation -I "$HK_CAPS" \
             "$HK_CAPS/ALTCapabilities.m" tests/HealthKitCapabilityTests.m -o build/capabilities-patched
           build/capabilities-patched | tee build/capability-tests.log
           grep -Fx 'Checks: 14; failures: 0' build/capability-tests.log
+          python3 scripts/test_auth_refresh.py upstream | tee build/auth-refresh-tests.log
+          grep -Fx 'Refresh checks: 18; failures: 0' build/auth-refresh-tests.log
           git -C upstream diff --check
           git -C upstream/Dependencies/AltSign diff --check
       - name: Build full iPhone app without a developer identity
@@ -70,7 +73,7 @@ jobs:
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/build/DerivedData" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
-            MARKETING_VERSION=2.3.1 CURRENT_PROJECT_VERSION=7001 \
+            MARKETING_VERSION=2.3.1 CURRENT_PROJECT_VERSION=7002 \
             build | tee build/iphone-build.log
       - name: Ad-hoc sign locally, inspect and package
         shell: bash
@@ -86,12 +89,13 @@ jobs:
             --entitlements upstream/AltStore/AltStore.entitlements "$HK_APP"
           python3 scripts/package.py
           tar --exclude='.git' -czf build/output/Corresponding-Source.tar.gz \
-            upstream scripts tests .github README.md upstream.json .gitignore .gitattributes
-          cp build/capability-tests.log build/baseline.log build/output/
+            upstream scripts tests .github README.md upstream.json .gitignore .gitattributes \
+            build/DerivedData/SourcePackages/checkouts
+          cp build/capability-tests.log build/baseline.log build/auth-refresh-tests.log build/output/
       - name: Upload candidate only after all gates pass
         uses: actions/upload-artifact@v4
         with:
-          name: AltStore-2.3.1-HealthKit-hk2-candidate
+          name: AltStore-2.3.1-HealthKit-hk3-candidate
           path: build/output/
           retention-days: 3
           if-no-files-found: error

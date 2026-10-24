@@ -11,6 +11,7 @@ ALLOWED = {
     "scripts/apply_healthkit.py", "scripts/fetch_source.py", "scripts/privacy_gate.py",
     "scripts/package.py", "tests/test_patch.py", "tests/HealthKitCapabilityTests.m",
     "tests/fixtures/ALTCapabilities.h", "tests/fixtures/ALTCapabilities.m",
+    "scripts/test_auth_refresh.py", "tests/RefreshHandlerHarness.swift",
 }
 PATTERNS = (
     re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{16}\b"),

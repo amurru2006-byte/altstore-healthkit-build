@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import importlib.util
 import json
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +16,8 @@ PRIVACY_SPEC.loader.exec_module(privacy)
 PACKAGE_SPEC = importlib.util.spec_from_file_location("package", ROOT / "scripts/package.py")
 package = importlib.util.module_from_spec(PACKAGE_SPEC)
 PACKAGE_SPEC.loader.exec_module(package)
+sys.path.insert(0, str(ROOT / "scripts"))
+import test_auth_refresh
 
 
 class PatchTests(unittest.TestCase):
@@ -23,6 +26,7 @@ class PatchTests(unittest.TestCase):
         cls.header = (ROOT / "tests/fixtures/ALTCapabilities.h").read_text()
         cls.source = (ROOT / "tests/fixtures/ALTCapabilities.m").read_text()
         cls.config = json.loads((ROOT / "upstream.json").read_text())
+        cls.auth = "synthetic original prefix\n" + adaptation.AUTH_ANCHOR + "\nsynthetic original suffix\n"
 
     def test_maps_only_base_boolean_healthkit(self):
         header, source = adaptation.patch_capabilities(self.header, self.source)
@@ -88,6 +92,50 @@ class PatchTests(unittest.TestCase):
         run.assert_called_once_with(
             ["xcrun", "lipo", str(executable), "-verify_arch", "arm64"], check=True
         )
+
+    def test_refresh_patch_preserves_every_existing_byte_outside_insertion(self):
+        patched = adaptation.patch_authentication(self.auth)
+        self.assertEqual(patched.replace(adaptation.REFRESH_BLOCK, "", 1), self.auth)
+        self.assertEqual(patched.count("anisetteDataRefreshHandler ="), 1)
+        self.assertLess(patched.index("anisetteDataRefreshHandler"), patched.index(adaptation.AUTH_ANCHOR))
+
+    def test_refresh_patch_rejects_duplicate_application(self):
+        patched = adaptation.patch_authentication(self.auth)
+        with self.assertRaises(ValueError):
+            adaptation.patch_authentication(patched)
+
+    def test_refresh_patch_rejects_missing_or_ambiguous_anchor(self):
+        for source in ("synthetic unrelated source", self.auth + adaptation.AUTH_ANCHOR):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    adaptation.patch_authentication(source)
+
+    def test_refresh_closure_uses_existing_fetch_and_checks_owner_lifetime(self):
+        block = adaptation.REFRESH_BLOCK
+        self.assertIn("FetchAnisetteDataOperation(context: self.context)", block)
+        self.assertEqual(block.count("[weak self]"), 2)
+        self.assertEqual(block.count("!self.isCancelled, !self.isFinished"), 2)
+        self.assertIn("case .failure(let error): completionHandler(nil, error)", block)
+        self.assertIn("case .success(let anisetteData): completionHandler(anisetteData, nil)", block)
+
+    def test_native_harness_extracts_exact_production_body(self):
+        patched = adaptation.patch_authentication(self.auth)
+        body = test_auth_refresh.extract_refresh_block(patched)
+        self.assertIn("anisetteDataRefreshHandler =", body)
+        self.assertIn(body, adaptation.REFRESH_BLOCK)
+        for invalid in (self.auth, patched + adaptation.REFRESH_BEGIN, patched + adaptation.REFRESH_END):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    test_auth_refresh.extract_refresh_block(invalid)
+
+    def test_hk3_has_newer_build_and_pinned_authentication_source(self):
+        self.assertEqual(self.config["build"], "7002")
+        self.assertEqual(self.config["candidate_tag"], "hk3")
+        self.assertRegex(self.config["authentication_blob_sha1"], r"^[a-f0-9]{40}$")
+        workflow = (ROOT / ".github/workflows/build.yml").read_text()
+        self.assertIn("CURRENT_PROJECT_VERSION=7002", workflow)
+        self.assertIn("Refresh checks: 18; failures: 0", workflow)
+        self.assertIn("build/DerivedData/SourcePackages/checkouts", workflow)
 
 
 if __name__ == "__main__":

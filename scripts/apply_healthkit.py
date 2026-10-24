@@ -5,6 +5,33 @@ import json
 import plistlib
 from pathlib import Path
 
+AUTH_ANCHOR = "        // Apple can ask for the anisette data to be resynchronized partway through signing in (hsc 434),"
+REFRESH_BEGIN = "        // HK3 refresh handler begin"
+REFRESH_END = "        // HK3 refresh handler end"
+REFRESH_BLOCK = '''        // HK3 refresh handler begin
+        // Fetch fresh data using the existing selected transport; preserve all authentication checks.
+        ALTAppleAPI.shared.anisetteDataRefreshHandler = { [weak self] completionHandler in
+            guard let self, !self.isCancelled, !self.isFinished else {
+                return completionHandler(nil, OperationError.cancelled)
+            }
+
+            let refreshOperation = FetchAnisetteDataOperation(context: self.context)
+            refreshOperation.resultHandler = { [weak self] result in
+                guard let self, !self.isCancelled, !self.isFinished else {
+                    return completionHandler(nil, OperationError.cancelled)
+                }
+                switch result
+                {
+                case .failure(let error): completionHandler(nil, error)
+                case .success(let anisetteData): completionHandler(anisetteData, nil)
+                }
+            }
+            self.operationQueue.addOperation(refreshOperation)
+        }
+        // HK3 refresh handler end
+
+'''
+
 
 def replace_once(source, old, new):
     if source.count(old) != 1:
@@ -65,6 +92,12 @@ def sanitize_info(info, config):
     return info
 
 
+def patch_authentication(source):
+    if "anisetteDataRefreshHandler" in source:
+        raise ValueError("Refresh wiring already present; review upstream before applying")
+    return replace_once(source, AUTH_ANCHOR, REFRESH_BLOCK + AUTH_ANCHOR)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -74,14 +107,17 @@ def main():
     header_path = directory / "ALTCapabilities.h"
     implementation_path = directory / "ALTCapabilities.m"
     info_path = args.source / "AltStore/Info.plist"
+    authentication_path = args.source / "AltStore/Operations/AuthenticationOperation.swift"
     header, implementation = patch_capabilities(
         header_path.read_text(), implementation_path.read_text()
     )
     info = sanitize_info(plistlib.loads(info_path.read_bytes()), config)
+    authentication = patch_authentication(authentication_path.read_text())
     # Validate every transformation before writing any source file.
     header_path.write_text(header)
     implementation_path.write_text(implementation)
     info_path.write_bytes(plistlib.dumps(info))
+    authentication_path.write_text(authentication)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,9 @@ def main():
     git("submodule", "update", "--init", "--recursive", "--depth=1", cwd=destination)
     if git("rev-parse", "HEAD", cwd=destination / "Dependencies/AltSign") != config["altsign_commit"]:
         raise SystemExit("AltSign revision mismatch")
+    authentication = destination / "AltStore/Operations/AuthenticationOperation.swift"
+    if git("hash-object", str(authentication)) != config["authentication_blob_sha1"]:
+        raise SystemExit("Authentication source differs from reviewed pinned blob")
     for name in ("ALTCapabilities.h", "ALTCapabilities.m"):
         actual = (destination / "Dependencies/AltSign/AltSign/Capabilities" / name).read_text().strip()
         expected = (ROOT / "tests/fixtures" / name).read_text().strip()
