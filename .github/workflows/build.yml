@@ -1,0 +1,106 @@
+name: Build experimental HealthKit adaptation
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: healthkit-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic:
+    if: ${{ github.event.repository.private == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Privacy allowlist and synthetic transformations
+        run: |
+          python3 scripts/privacy_gate.py
+          python3 -m unittest discover -s tests -v
+  iphone:
+    if: ${{ github.event.repository.private == false }}
+    needs: synthetic
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select SDK and fetch pinned public source
+        run: |
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          fi
+          xcodebuild -version
+          python3 scripts/privacy_gate.py
+          python3 scripts/fetch_source.py upstream
+          mkdir -p build
+      - name: Prove baseline regression then apply narrow mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          HK_CAPS=upstream/Dependencies/AltSign/AltSign/Capabilities
+          xcrun clang -fobjc-arc -framework Foundation -I "$HK_CAPS" \
+            "$HK_CAPS/ALTCapabilities.m" tests/HealthKitCapabilityTests.m -o build/capabilities-baseline
+          set +e
+          build/capabilities-baseline >build/baseline.log 2>&1
+          HK_BASELINE_STATUS=$?
+          set -e
+          cat build/baseline.log
+          test "$HK_BASELINE_STATUS" -eq 1
+          grep -Fx 'Checks: 14; failures: 2' build/baseline.log
+          python3 scripts/apply_healthkit.py upstream
+          xcrun clang -fobjc-arc -framework Foundation -I "$HK_CAPS" \
+            "$HK_CAPS/ALTCapabilities.m" tests/HealthKitCapabilityTests.m -o build/capabilities-patched
+          build/capabilities-patched | tee build/capability-tests.log
+          grep -Fx 'Checks: 14; failures: 0' build/capability-tests.log
+          git -C upstream diff --check
+          git -C upstream/Dependencies/AltSign diff --check
+      - name: Build full iPhone app without a developer identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace upstream/AltStore.xcworkspace -scheme AltStore \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            MARKETING_VERSION=2.3.1 CURRENT_PROJECT_VERSION=7001 \
+            build | tee build/iphone-build.log
+      - name: Ad-hoc sign locally, inspect and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          HK_APP=build/DerivedData/Build/Products/Release-iphoneos/AltStore.app
+          find "$HK_APP" -depth -type d -name '*.framework' -exec codesign --force --sign - '{}' \;
+          for HK_EXTENSION in "$HK_APP"/PlugIns/*.appex; do
+            codesign --force --sign - --generate-entitlement-der \
+              --entitlements upstream/AltWidget/AltWidgetExtension.entitlements "$HK_EXTENSION"
+          done
+          codesign --force --sign - --generate-entitlement-der \
+            --entitlements upstream/AltStore/AltStore.entitlements "$HK_APP"
+          python3 scripts/package.py
+          tar --exclude='.git' -czf build/output/Corresponding-Source.tar.gz \
+            upstream scripts tests .github README.md upstream.json .gitignore .gitattributes
+          cp build/capability-tests.log build/baseline.log build/output/
+      - name: Upload candidate only after all gates pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: AltStore-2.3.1-HealthKit-hk2-candidate
+          path: build/output/
+          retention-days: 3
+          if-no-files-found: error
+      - name: Upload bounded diagnostic build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthkit-build-diagnostics
+          path: |
+            build/*.log
+          retention-days: 1
+          if-no-files-found: ignore

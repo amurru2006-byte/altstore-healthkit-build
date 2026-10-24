@@ -1,0 +1,11 @@
+upstream/
+build/
+__pycache__/
+*.pyc
+*.ipa
+*.p12
+*.pfx
+*.key
+*.mobileprovision
+*.devicepairing
+.env*

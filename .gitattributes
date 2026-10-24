@@ -1,0 +1,3 @@
+* text eol=lf
+# Preserve reviewed upstream fixtures exactly, including blank-line whitespace.
+tests/fixtures/* whitespace=-blank-at-eol

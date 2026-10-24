@@ -1,0 +1,9 @@
+{
+  "altstore_repository": "https://github.com/altstoreio/AltStore.git",
+  "altstore_commit": "bbc10d6964185b75a46c6ddd7476ac08df095308",
+  "altsign_commit": "e639bdfbea185d5c229b11f62e25c5d78649d5c4",
+  "version": "2.3.1",
+  "build": "7001",
+  "display_name": "AltStore HK Test",
+  "bundle_identifier": "com.rileytestut.AltStore"
+}
