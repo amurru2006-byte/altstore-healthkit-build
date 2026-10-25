@@ -12,7 +12,7 @@ CONFIG = json.loads((HERE / "upstream.json").read_text(encoding="utf-8"))
 MODULE_PATH = "src-tauri/src/network_diagnostics.rs"
 LOG_FILTER = 'tracing_subscriber::filter::filter_fn(|metadata| metadata.target() == "pivot_network_diagnostics")'
 BANNER = '''      <aside role="note" style={{ padding: "12px", border: "2px solid #d59a36" }}>
-        UNOFFICIAL diagnostic D1 — network errors only; not an official iloader release.
+        UNOFFICIAL diagnostic D2 — network categories only; not an official iloader release.
         {" "}<a href="https://iloader.app" target="_blank" rel="noreferrer">Official upstream: iloader.app</a>
       </aside>
 '''
@@ -68,7 +68,7 @@ def transform(original):
     if package_graph(output[key]) != package_graph(original[key]):
         raise ValueError("Locked dependency graph changed")
     key = "src-tauri/tauri.conf.json"
-    output[key] = once(output[key], '"title": "iloader"', '"title": "iloader — UNOFFICIAL Diagnostic D1"')
+    output[key] = once(output[key], '"title": "iloader"', '"title": "iloader — UNOFFICIAL Diagnostic D2"')
     key = "src/App.tsx"
     output[key] = once(output[key], "      </header>\n", "      </header>\n" + BANNER)
     return output

@@ -2,8 +2,8 @@
   "repository": "https://github.com/nab138/iloader.git",
   "commit": "902597564315442f00ab299dcc758ee0e13b8fa8",
   "version": "2.4.0",
-  "diagnostic_revision": "D1",
-  "native_test_count": 18,
+  "diagnostic_revision": "D2",
+  "native_test_count": 26,
   "blobs": {
     "src-tauri/Cargo.lock": "3ff6419475dd390eab2e190685e67cea9c0ef522",
     "src-tauri/Cargo.toml": "108f83e50bc7edf02db2f9f560ee28875da72ac2",

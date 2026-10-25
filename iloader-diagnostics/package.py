@@ -41,7 +41,7 @@ def verify_pe(data):
         raise ValueError("Executable must be PE32+")
     if struct.unpack_from("<II", data, offset + 24 + 112 + 4 * 8) != (0, 0):
         raise ValueError("Unexpected Authenticode certificate table")
-    if b"PIVOT-NET-D1" not in data:
+    if b"PIVOT-NET-D2" not in data:
         raise ValueError("Compiled diagnostic marker missing")
 
 
@@ -101,7 +101,7 @@ def main():
     if output.exists():
         raise SystemExit("Output exists; refusing to replace an archive")
     output.mkdir(parents=True)
-    name = "iloader-2.4.0-UNOFFICIAL-diagnostic-D1-windows-x64.exe"
+    name = "iloader-2.4.0-UNOFFICIAL-diagnostic-D2-windows-x64.exe"
     shutil.copy2(binary, output / name)
     (output / "synthetic-tests.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     for license_name in ("LICENSE", "LICENSE-BRANDING"):
@@ -140,7 +140,7 @@ def main():
         frontend_notices(archive, root / "node_modules")
 
     manifest = {"upstream_commit": recipe.CONFIG["commit"], "version": recipe.CONFIG["version"],
-                "diagnostic_revision": "D1", "unofficial": True, "authenticode_signed": False,
+                "diagnostic_revision": "D2", "unofficial": True, "authenticode_signed": False,
                 "phone_tested": False, "apple_authentication_tested": False,
                 "recipe_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=HERE, text=True).strip(),
                 "native_tests": result, "files": {}}

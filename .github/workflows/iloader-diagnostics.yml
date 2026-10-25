@@ -64,7 +64,7 @@ jobs:
       - name: Publish candidate only after every gate passes
         uses: actions/upload-artifact@v7
         with:
-          name: iloader-2.4.0-UNOFFICIAL-diagnostic-D1-candidate
+          name: iloader-2.4.0-UNOFFICIAL-diagnostic-D2-candidate
           path: build/diagnostic-candidate/
           if-no-files-found: error
           retention-days: 1
