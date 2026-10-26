@@ -18,6 +18,7 @@ package = importlib.util.module_from_spec(PACKAGE_SPEC)
 PACKAGE_SPEC.loader.exec_module(package)
 sys.path.insert(0, str(ROOT / "scripts"))
 import test_auth_refresh
+import test_auth_identity
 
 
 class PatchTests(unittest.TestCase):
@@ -27,6 +28,8 @@ class PatchTests(unittest.TestCase):
         cls.source = (ROOT / "tests/fixtures/ALTCapabilities.m").read_text()
         cls.config = json.loads((ROOT / "upstream.json").read_text())
         cls.auth = "synthetic original prefix\n" + adaptation.AUTH_ANCHOR + "\nsynthetic original suffix\n"
+        cls.anisette_fetch = "synthetic original prefix\n" + adaptation.IDENTITY_ANCHOR + "\nsynthetic original suffix\n"
+        cls.anisette_fetch_pin = adaptation.source_blob_sha1(cls.anisette_fetch)
 
     def test_maps_only_base_boolean_healthkit(self):
         header, source = adaptation.patch_capabilities(self.header, self.source)
@@ -128,13 +131,77 @@ class PatchTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     test_auth_refresh.extract_refresh_block(invalid)
 
-    def test_hk3_has_newer_build_and_pinned_authentication_source(self):
-        self.assertEqual(self.config["build"], "7002")
-        self.assertEqual(self.config["candidate_tag"], "hk3")
+    def test_identity_patch_preserves_every_existing_byte_outside_insertion(self):
+        patched = adaptation.patch_anisette_identity(self.anisette_fetch, self.anisette_fetch_pin)
+        self.assertEqual(patched.replace("\n" + adaptation.IDENTITY_BLOCK, "", 1), self.anisette_fetch)
+        self.assertEqual(patched.count("authenticationUserAgent = response.userAgent"), 1)
+        self.assertIn(adaptation.IDENTITY_ANCHOR + "\n" + adaptation.IDENTITY_BLOCK, patched)
+
+    def test_identity_patch_rejects_repeat_application(self):
+        patched = adaptation.patch_anisette_identity(self.anisette_fetch, self.anisette_fetch_pin)
+        with self.assertRaises(ValueError):
+            adaptation.patch_anisette_identity(patched, self.anisette_fetch_pin)
+
+    def test_identity_patch_rejects_mutation_or_incorrect_pin(self):
+        for source, expected_pin in (
+            (self.anisette_fetch + "synthetic mutation", self.anisette_fetch_pin),
+            (self.anisette_fetch, "0" * 40),
+            (self.anisette_fetch, ""),
+        ):
+            with self.subTest(source=source, pin=expected_pin):
+                with self.assertRaises(ValueError):
+                    adaptation.patch_anisette_identity(source, expected_pin)
+
+    def test_identity_patch_rejects_absent_or_ambiguous_anchor_even_with_matching_pin(self):
+        for source in ("synthetic unrelated source", self.anisette_fetch + adaptation.IDENTITY_ANCHOR):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    adaptation.patch_anisette_identity(source, adaptation.source_blob_sha1(source))
+
+    def test_identity_baseline_requires_reviewed_unmodified_source(self):
+        test_auth_identity.verify_baseline(self.anisette_fetch, self.anisette_fetch_pin)
+        patched = adaptation.patch_anisette_identity(self.anisette_fetch, self.anisette_fetch_pin)
+        for source, pin in (
+            (self.anisette_fetch + "synthetic mutation", self.anisette_fetch_pin),
+            (patched, adaptation.source_blob_sha1(patched)),
+            ("synthetic unrelated source", adaptation.source_blob_sha1("synthetic unrelated source")),
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    test_auth_identity.verify_baseline(source, pin)
+
+    def test_identity_native_harness_extracts_exact_success_path(self):
+        patched = adaptation.patch_anisette_identity(self.anisette_fetch, self.anisette_fetch_pin)
+        path = test_auth_identity.extract_identity_path(patched)
+        self.assertIn(path, patched)
+        self.assertEqual(path, adaptation.IDENTITY_ANCHOR + "\n" + adaptation.IDENTITY_BLOCK)
+        self.assertEqual(test_auth_identity.EXPECTED_CHECKS, 16)
+        self.assertLess(path.index("try await self.fetchHeaders"), path.index("authenticationUserAgent ="))
+
+    def test_identity_native_harness_rejects_absent_duplicate_moved_or_reversed_markers(self):
+        patched = adaptation.patch_anisette_identity(self.anisette_fetch, self.anisette_fetch_pin)
+        reversed_markers = (adaptation.IDENTITY_END + "\n" + adaptation.IDENTITY_ANCHOR + "\n" +
+                            adaptation.IDENTITY_BEGIN + "\nsynthetic assignment")
+        for source in (
+            self.anisette_fetch,
+            patched + adaptation.IDENTITY_BEGIN,
+            patched + adaptation.IDENTITY_END,
+            patched.replace(adaptation.IDENTITY_ANCHOR + "\n", adaptation.IDENTITY_ANCHOR + "\nsynthetic gap\n"),
+            reversed_markers,
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    test_auth_identity.extract_identity_path(source)
+
+    def test_hk4_has_newer_build_and_pinned_authentication_sources(self):
+        self.assertEqual(self.config["build"], "7003")
+        self.assertEqual(self.config["candidate_tag"], "hk4")
         self.assertRegex(self.config["authentication_blob_sha1"], r"^[a-f0-9]{40}$")
+        self.assertEqual(self.config["anisette_fetch_blob_sha1"], "8d84fc17604b3f3d9f5b53331090cfa79721413a")
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
-        self.assertIn("CURRENT_PROJECT_VERSION=7002", workflow)
+        self.assertIn("CURRENT_PROJECT_VERSION=7003", workflow)
         self.assertIn("Refresh checks: 18; failures: 0", workflow)
+        self.assertIn("Authentication identity checks: 16; failures: 0", workflow)
         self.assertIn("build/DerivedData/SourcePackages/checkouts", workflow)
 
 

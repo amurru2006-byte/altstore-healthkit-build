@@ -46,9 +46,12 @@ def main():
     refresh_log = (ROOT / "build/auth-refresh-tests.log").read_text()
     if "Refresh checks: 18; failures: 0" not in refresh_log.splitlines():
         raise SystemExit("Exact native refresh-handler results are required")
+    identity_log = (ROOT / "build/auth-identity-tests.log").read_text()
+    if "Authentication identity checks: 16; failures: 0" not in identity_log.splitlines():
+        raise SystemExit("Exact native provider-identity results are required")
     output = ROOT / "build/output"
     output.mkdir(parents=True, exist_ok=False)
-    ipa = output / "AltStore-2.3.1-HealthKit-hk3.ipa"
+    ipa = output / "AltStore-2.3.1-HealthKit-hk4.ipa"
     for path in app.rglob("*"):
         if path.is_file() and path.suffix.lower() in {".p12", ".pfx", ".key", ".mobileprovision", ".devicepairing"}:
             raise SystemExit("Credential/provisioning files must not enter public package")
@@ -69,6 +72,8 @@ def main():
         "native_capability_checks": 14,
         "native_auth_refresh_checks": 18,
         "authentication_refresh_wiring": True,
+        "native_auth_identity_checks": 16,
+        "authentication_provider_user_agent_wiring": True,
         "signing": "ad-hoc; must be re-signed on the owner's device",
         "device_identity_embedded": False,
         "real_device_healthkit_verified": False,

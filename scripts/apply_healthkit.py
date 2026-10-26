@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Narrow, fail-closed source adaptation. Never accepts credentials or device IDs."""
 import argparse
+import hashlib
 import json
 import plistlib
 from pathlib import Path
@@ -31,6 +32,26 @@ REFRESH_BLOCK = '''        // HK3 refresh handler begin
         // HK3 refresh handler end
 
 '''
+
+IDENTITY_ANCHOR = "        let (machineID, oneTimePassword, routingInfo) = try await self.fetchHeaders(from: serverURL, identity: identity, adiPB: adiPB, sim: sim)"
+IDENTITY_BEGIN = "        // HK4 authentication identity begin"
+IDENTITY_END = "        // HK4 authentication identity end"
+IDENTITY_BLOCK = '''        // HK4 authentication identity begin
+        ALTAppleAPI.shared.authenticationUserAgent = response.userAgent
+        // HK4 authentication identity end'''
+
+
+def source_blob_sha1(source):
+    data = source.encode("utf-8")
+    return hashlib.sha1(f"blob {len(data)}\0".encode("ascii") + data).hexdigest()
+
+
+def patch_anisette_identity(source, expected_blob_sha1):
+    if "authenticationUserAgent" in source:
+        raise ValueError("Authentication identity wiring already present; review upstream before applying")
+    if source_blob_sha1(source) != expected_blob_sha1:
+        raise ValueError("Anisette fetch source differs from reviewed pinned blob")
+    return replace_once(source, IDENTITY_ANCHOR, IDENTITY_ANCHOR + "\n" + IDENTITY_BLOCK)
 
 
 def replace_once(source, old, new):
@@ -108,16 +129,21 @@ def main():
     implementation_path = directory / "ALTCapabilities.m"
     info_path = args.source / "AltStore/Info.plist"
     authentication_path = args.source / "AltStore/Operations/AuthenticationOperation.swift"
+    anisette_fetch_path = args.source / "AltStore/Operations/FetchAnisetteDataOperation.swift"
     header, implementation = patch_capabilities(
         header_path.read_text(), implementation_path.read_text()
     )
     info = sanitize_info(plistlib.loads(info_path.read_bytes()), config)
     authentication = patch_authentication(authentication_path.read_text())
+    anisette_fetch = patch_anisette_identity(
+        anisette_fetch_path.read_text(), config["anisette_fetch_blob_sha1"]
+    )
     # Validate every transformation before writing any source file.
     header_path.write_text(header)
     implementation_path.write_text(implementation)
     info_path.write_bytes(plistlib.dumps(info))
     authentication_path.write_text(authentication)
+    anisette_fetch_path.write_text(anisette_fetch)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,9 @@ def main():
     authentication = destination / "AltStore/Operations/AuthenticationOperation.swift"
     if git("hash-object", str(authentication)) != config["authentication_blob_sha1"]:
         raise SystemExit("Authentication source differs from reviewed pinned blob")
+    anisette_fetch = destination / "AltStore/Operations/FetchAnisetteDataOperation.swift"
+    if git("hash-object", str(anisette_fetch)) != config["anisette_fetch_blob_sha1"]:
+        raise SystemExit("Anisette source differs from reviewed pinned blob")
     for name in ("ALTCapabilities.h", "ALTCapabilities.m"):
         actual = (destination / "Dependencies/AltSign/AltSign/Capabilities" / name).read_text().strip()
         expected = (ROOT / "tests/fixtures" / name).read_text().strip()
